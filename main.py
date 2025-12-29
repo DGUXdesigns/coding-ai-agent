@@ -30,48 +30,64 @@ def main():
 
 
 def generate_content(client, messages, verbose):
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        config=types.GenerateContentConfig(
-            tools=[available_functions],
-            system_instruction=system_prompt,
-        ),
-        contents=messages,
-    )
+    for _ in range(20):
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            config=types.GenerateContentConfig(
+                tools=[available_functions],
+                system_instruction=system_prompt,
+            ),
+            contents=messages,
+        )
 
-    if not response.usage_metadata:
-        raise RuntimeError("Something went wrong, no usage metadata available")
-
-    if verbose:
-        print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
-        print(f"Response tokens: {response.usage_metadata.candidates_token_count}")
-
-    if not response.function_calls:
-        print("Gemini Response:")
-        print(response.text)
-        return
-
-    function_results = []
-    for function_call in response.function_calls:
-        function_call_result = call_function(function_call, verbose)
-
-        if not function_call_result.parts:
-            raise RuntimeError("Function call returned no parts")
-
-        part = function_call_result.parts[0]
-
-        if not part.function_response:
-            raise RuntimeError("Missing function_response in function result")
-
-        if not part.function_response.response:
-            raise RuntimeError("Function response was None")
-
-        function_results.append(part)
+        if not response.usage_metadata:
+            raise RuntimeError("Something went wrong, no usage metadata available")
 
         if verbose:
-            print(f"-> {part.function_response.response}")
+            print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
+            print(f"Response tokens: {response.usage_metadata.candidates_token_count}")
 
-    return function_results
+        if not response.candidates:
+            raise RuntimeError("No candidates returned by the model")
+
+        for candidate in response.candidates:
+            if not candidate.content:
+                raise RuntimeError("Candidate missing content")
+            messages.append(candidate.content)
+
+        if not response.function_calls:
+            print("Gemini Response:")
+            print(response.text)
+            return
+
+        function_results = []
+        for function_call in response.function_calls:
+            function_call_result = call_function(function_call, verbose)
+
+            if not function_call_result.parts:
+                raise RuntimeError("Function call returned no parts")
+
+            part = function_call_result.parts[0]
+
+            if not part.function_response:
+                raise RuntimeError("Missing function_response in function result")
+
+            if not part.function_response.response:
+                raise RuntimeError("Function response was None")
+
+            function_results.append(part)
+
+            if verbose:
+                print(f"-> {part.function_response.response}")
+
+        messages.append(
+            types.Content(
+                role="user",
+                parts=function_results,
+            )
+        )
+
+    raise RuntimeError("Error: Max iterations reached without a final response")
 
 
 if __name__ == "__main__":
